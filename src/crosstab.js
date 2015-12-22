@@ -678,7 +678,7 @@
     // 3 second keepalive
     var TAB_KEEPALIVE = 3 * 1000;
     // 5 second timeout
-    var TAB_TIMEOUT = 5 * 1000;
+    var TAB_TIMEOUT = 60 * 1000;
     // 500 ms ping timeout
     var PING_TIMEOUT = 500;
 
@@ -709,7 +709,7 @@
         }
 
         function notAlive(tab, key) {
-            return key !== util.keys.MASTER_TAB && !stillAlive(tab);
+            return key !== util.keys.MASTER_TAB && tab.id !== crosstab.id && !stillAlive(tab);
         }
 
         var deadTabs = util.filter(util.tabs, notAlive);
