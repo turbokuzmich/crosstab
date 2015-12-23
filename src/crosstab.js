@@ -54,7 +54,8 @@
         }
 
         // Other reasons
-        var frozenTabEnvironment = false;
+        var frozenTabEnvironment = false,
+            unloaded = false;
 
         // --- Tab Setup ---
         // 10 minute timeout
@@ -412,7 +413,12 @@
                 data: data,
                 timestamp: util.now()
             };
-            localStorage.setItem(key, JSON.stringify(storageItem));
+            try {
+                localStorage.setItem(key, JSON.stringify(storageItem));
+            } catch (e) {
+                console.info(e);
+                console.info(storageItem);
+            }
         }
 
         function getLocalStorageItem(key) {
@@ -427,21 +433,23 @@
         }
 
         function unload() {
-            crosstab.stopKeepalive = true;
-            var numTabs = 0;
-            util.forEach(util.tabs, function(tab, key) {
-                if (key !== util.keys.MASTER_TAB) {
-                    numTabs++;
+            if (unloaded === false) {
+                crosstab.stopKeepalive = true;
+                var numTabs = 0;
+                util.forEach(util.tabs, function(tab, key) {
+                    if (key !== util.keys.MASTER_TAB) {
+                        numTabs++;
+                    }
+                });
+
+                if (numTabs === 1) {
+                    util.tabs = {};
+                    setStoredTabs();
+                } else {
+                    broadcast(util.eventTypes.tabClosed, crosstab.id);
                 }
-            });
-
-            if (numTabs === 1) {
-                util.tabs = {};
-                setStoredTabs();
-            } else {
-                broadcast(util.eventTypes.tabClosed, crosstab.id);
+                unloaded = true;
             }
-
         }
 
         function restoreLoop() {
@@ -451,7 +459,8 @@
 
         function swapUnloadEvents() {
             // `beforeunload` replaced by `unload` (IE11 will be smart now)
-            window.removeEventListener('beforeunload', unload, false);
+            //window.removeEventListener('beforeunload', unload, false);
+            window.addEventListener('beforeunload', unload, false);
             window.addEventListener('unload', unload, false);
             restoreLoop();
         }
@@ -482,6 +491,10 @@
 
         function isMaster() {
             return getMasterId() === crosstab.id;
+        }
+
+        function isTabPresent(tab_id) {
+            return (tab_id in util.tabs);
         }
 
         function masterTabElection() {
@@ -549,10 +562,12 @@
 
         var bullying;
         eventHandler.addListener(util.eventTypes.tabPromoted, function(message) {
+            if (isTabPresent(message.origin) === false)
+                return;
+
             var id = message.data;
             var lastUpdated = message.timestamp;
             var previousMaster = getMasterId();
-
             // Bully out competing broadcasts if our id is lower
             if (crosstab.id < id) {
                 if (!bullying) {
@@ -573,6 +588,7 @@
                 // set the tabs in localStorage
                 setStoredTabs();
             }
+
             if (isMaster()
                 && previousMaster !== crosstab.id) {
                 // emit the become master event so we can handle it accordingly
@@ -704,7 +720,7 @@
                     var timeout;
                     var start;
 
-                    crosstab.util.events.once('PONG', function(event) {
+                    crosstab.util.events.once('PONG', function() {
                         if (!setupComplete) {
                             clearTimeout(timeout);
                             // set supported to true / frozen to false
@@ -728,9 +744,10 @@
                         var diff = util.now() - start;
                         if (!setupComplete) {
                             if (iters <= 0 && diff > PING_TIMEOUT) {
+                                console.log('reelect');
                                 deleteMasterAndItsTab();
-
                                 masterTabElection();
+
                                 util.events.emit('setupComplete');
                             } else {
                                 timeout = setTimeout(function() {
@@ -761,16 +778,16 @@
             // --- Crosstab supported ---
             // Check to see if the global frozen tab environment key or supported key has been set.
             if (!setupComplete && crosstab.supported) {
-                var frozenTabsRaw = getLocalStorageRaw(util.keys.FROZEN_TAB_ENVIRONMENT);
+                //var frozenTabsRaw = getLocalStorageRaw(util.keys.FROZEN_TAB_ENVIRONMENT);
 
-                if (frozenTabsRaw.timestamp) {
-                    var frozenTabs = frozenTabsRaw.data;
-                    if (util.now() - frozenTabsRaw.timestamp > CACHE_TIMEOUT) {
-                        localStorage.removeItem(util.keys.FROZEN_TAB_ENVIRONMENT);
-                    } else if (frozenTabs === true) {
-                        frozenTabEnvironmentDetected();
-                    }
-                }
+                //if (frozenTabsRaw.timestamp) {
+                //    var frozenTabs = frozenTabsRaw.data;
+                //    if (util.now() - frozenTabsRaw.timestamp > CACHE_TIMEOUT) {
+                //        localStorage.removeItem(util.keys.FROZEN_TAB_ENVIRONMENT);
+                //    } else if (frozenTabs === true) {
+                //        frozenTabEnvironmentDetected();
+                //    }
+                //}
 
                 //var supportedRaw = getLocalStorageRaw(util.keys.SUPPORTED_KEY);
                 //
@@ -795,8 +812,9 @@
                 window.addEventListener('storage', onStorageEvent, false);
                 // start with the `beforeunload` event due to IE11
                 window.addEventListener('beforeunload', unload, false);
+                window.addEventListener('unload', unload, false);
                 // swap `beforeunload` to `unload` after DOM is loaded
-                window.addEventListener('DOMContentLoaded', swapUnloadEvents, false);
+                //window.addEventListener('DOMContentLoaded', swapUnloadEvents, false);
 
                 util.events.on('PING', function(message) {
                     // only handle direct messages
@@ -804,7 +822,7 @@
                         return;
                     }
                     if (util.now() - message.timestamp < PING_TIMEOUT) {
-                        crosstab.broadcast('PONG', window, message.origin);
+                        crosstab.broadcast('PONG', null, message.origin);
                     }
                 });
 
